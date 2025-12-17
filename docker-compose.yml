@@ -1,11 +1,15 @@
 services:
+  # ==========================================
+  # 1. 核心应用 (OPaaS)
+  # ==========================================
   opaas-web:
     build:
       context: ./backend
     container_name: opaas_web
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    # 端口映射可以注释掉，因为流量通过 NPM 走内网进来，更加安全
+    # ports:
+    #   - "8000:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/app/data
@@ -13,16 +17,29 @@ services:
       - ./backend:/app
     environment:
       - HOST_DATA_PATH=${HOST_DATA_PATH}
-      - REDIS_HOST=opaas-redis # [新增] Redis 地址
+      - REDIS_HOST=opaas-redis
     depends_on:
-      - opaas-redis # [新增] 依赖顺序
+      - opaas-redis
     command: sh -c "mkdir -p /app/data/temp_tasks && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
 
-  # [新增] Redis 服务
+    # [关键] 配置网络
+    networks:
+      - default # 保持与 Redis 的连接
+      - npm_network # 加入 NPM 的网络，让 NPM 能访问到
+
+  # ==========================================
+  # 2. 缓存数据库 (Redis)
+  # ==========================================
   opaas-redis:
     image: redis:alpine
     container_name: opaas_redis
     restart: always
-    # 可选：如果想持久化 Redis 数据，取消下面注释
     volumes:
       - ./redis_data:/data
+    networks:
+      - default # Redis 只需要被 Web 访问，不需要暴露给 NPM
+
+# [关键] 声明外部网络
+networks:
+  npm_network:
+    external: true

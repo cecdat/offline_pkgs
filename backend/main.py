@@ -2,13 +2,14 @@ import os
 import shutil
 import tarfile
 import docker
+import docker.errors # [关键] 用于捕获容器退出码非0时的输出
 import logging
 import glob
 import hashlib
 import time
 import re
 import json
-import redis  # [新增]
+import redis
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from uuid import uuid4
@@ -36,7 +37,7 @@ CONTAINER_WORK_DIR = "/app/data/temp_tasks"
 CACHE_DIR = "/app/data/cache"
 TEMP_STORAGE_DIR = "/app/data/temp_files"
 HOST_DATA_PATH = os.getenv("HOST_DATA_PATH", os.getcwd() + "/data")
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost") # [新增]
+REDIS_HOST = os.getenv("REDIS_HOST", "opaas-redis") 
 
 for d in [CONTAINER_WORK_DIR, CACHE_DIR, TEMP_STORAGE_DIR]:
     os.makedirs(d, exist_ok=True)
@@ -56,7 +57,7 @@ DISTRO_MAP = {
     "debian_11": "downloader:debian-11"
 }
 
-# 常用包集合
+# 常用包集合 (扁平化，用于判断缓存策略)
 COMMON_PACKAGES_SET = {
     'docker.io', 'docker-compose-v2',
     'openssh-server', 'vim', 'net-tools',
@@ -65,15 +66,15 @@ COMMON_PACKAGES_SET = {
     'mariadb-client', 'htop', 'jq'
 }
 
-# [新增] 初始化 Redis 连接
+# 初始化 Redis 连接
 try:
     r_client = redis.Redis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
     r_client.ping()
     logger.info(f"Redis 连接成功: {REDIS_HOST}")
 except Exception as e:
     logger.error(f"Redis 连接失败: {e}")
-    exit(1)
-
+    # 注意：如果 Redis 连不上，建议直接退出或降级，这里暂不强制退出但后续会报错
+    
 app = FastAPI()
 docker_client = docker.from_env()
 jinja_env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
@@ -90,8 +91,7 @@ def calculate_cache_key(distro: str, arch: str, packages: List[str]) -> str:
     return hashlib.md5(raw_str.encode()).hexdigest()
 
 def clean_old_temp_files():
-    """清理文件系统和 Redis 中过期的临时文件"""
-    # 1. 物理清理 (兜底策略，以防 Redis 挂了)
+    """清理物理过期的临时文件"""
     retention_seconds = 3 * 24 * 60 * 60 
     now = time.time()
     for f in glob.glob(os.path.join(TEMP_STORAGE_DIR, "*.tar.gz")):
@@ -101,7 +101,6 @@ def clean_old_temp_files():
                 logger.info(f"[清理] 删除过期物理文件: {os.path.basename(f)}")
             except Exception as e:
                 logger.error(f"删除失败: {e}")
-    # 注意：Redis 的 Key 我们会设置 TTL，让它自动消失
 
 def is_common_request(packages: List[str]) -> bool:
     if not packages: return False
@@ -134,28 +133,27 @@ def run_docker_worker(task_id: str, image: str, distro: str, arch: str, packages
     container_task_dir = os.path.join(CONTAINER_WORK_DIR, task_id)
     host_task_dir = os.path.join(HOST_DATA_PATH, "temp_tasks", task_id)
     
-    # [Redis] 更新状态: 处理中
+    # 更新 Redis 状态
     r_client.hset(f"task:{task_id}", mapping={"status": "processing", "progress": "0"})
     
     logger.info(f"[{task_id}] 启动构建 | 镜像: {image}")
 
     try:
+        # 启动容器
         docker_client.containers.run(
             image=image,
             volumes={ host_task_dir: {'bind': '/output', 'mode': 'rw'} },
             environment={ "PACKAGES": " ".join(packages), "TARGET_ARCH": arch },
-            remove=True, network_mode="host"
+            remove=True, 
+            network_mode="host"
         )
         
+        # 检查结果目录
         deb_dir = os.path.join(container_task_dir, "deb")
         if not os.path.exists(deb_dir) or not os.listdir(deb_dir):
-            logger.error(f"[{task_id}] 失败: 下载目录为空")
-            r_client.hset(f"task:{task_id}", mapping={"status": "failed", "error": "下载目录为空"})
-            return
+            raise Exception("下载成功但目录为空，系统异常")
 
         first_pkg = sanitize_filename(packages[0])
-        
-        # 目标路径
         final_filename = ""
         final_path = ""
         
@@ -174,8 +172,7 @@ def run_docker_worker(task_id: str, image: str, distro: str, arch: str, packages
 
         shutil.rmtree(container_task_dir)
 
-        # [Redis] 更新状态: 完成
-        # 记录文件路径和下载名，供 download 接口使用
+        # 更新 Redis 完成状态
         task_info = {
             "status": "completed",
             "file_path": final_path,
@@ -183,12 +180,11 @@ def run_docker_worker(task_id: str, image: str, distro: str, arch: str, packages
         }
         r_client.hset(f"task:{task_id}", mapping=task_info)
         
-        # 如果是临时文件，给 Task Key 设置 3 天过期
+        # 临时文件设置 3 天过期
         if not save_to_cache:
             r_client.expire(f"task:{task_id}", 3 * 24 * 60 * 60)
 
-        # [Redis] 如果是常用包，写入缓存索引 Key
-        # Key: cache:MD5 -> Value: path
+        # 写入缓存索引
         if save_to_cache:
             cache_info = {
                 "file_path": final_path,
@@ -197,8 +193,14 @@ def run_docker_worker(task_id: str, image: str, distro: str, arch: str, packages
             }
             r_client.set(f"cache:{cache_key}", json.dumps(cache_info))
 
+    except docker.errors.ContainerError as e:
+        # [关键] 捕获容器内部脚本的错误输出 (echo ... exit 1)
+        error_msg = e.stderr.decode('utf-8').strip() if e.stderr else str(e)
+        logger.error(f"[{task_id}] 容器构建失败: {error_msg}")
+        r_client.hset(f"task:{task_id}", mapping={"status": "failed", "error": error_msg})
+
     except Exception as e:
-        logger.error(f"[{task_id}] 异常: {e}", exc_info=True)
+        logger.error(f"[{task_id}] 系统异常: {e}", exc_info=True)
         r_client.hset(f"task:{task_id}", mapping={"status": "failed", "error": str(e)})
 
 # ================= API =================
@@ -210,19 +212,17 @@ async def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
     if req.distro not in DISTRO_MAP:
         raise HTTPException(status_code=400, detail="不支持的系统")
     
-    # 1. 计算缓存指纹
+    # 1. 计算指纹
     cache_key = calculate_cache_key(req.distro, req.arch, req.packages)
     is_common = is_common_request(req.packages)
     
-    # 2. [Redis] 检查缓存索引
+    # 2. 检查缓存
     if is_common:
         cached_json = r_client.get(f"cache:{cache_key}")
         if cached_json:
             cache_data = json.loads(cached_json)
-            # 再次确认物理文件存在
             if os.path.exists(cache_data["file_path"]):
                 logger.info(f"Redis 缓存命中! Key: {cache_key}")
-                # 生成一个虚拟任务ID指向缓存
                 pseudo_task_id = "CACHED_" + cache_key
                 return {
                     "task_id": pseudo_task_id,
@@ -230,7 +230,6 @@ async def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
                     "download_url": f"/api/download/{pseudo_task_id}"
                 }
             else:
-                logger.warning(f"Redis 有缓存记录但文件丢失: {cache_key}")
                 r_client.delete(f"cache:{cache_key}")
 
     # 3. 创建新任务
@@ -238,7 +237,6 @@ async def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
     task_dir = os.path.join(CONTAINER_WORK_DIR, task_id)
     os.makedirs(task_dir, exist_ok=True)
     
-    # 初始化 Redis 任务状态
     r_client.hset(f"task:{task_id}", mapping={"status": "queued", "created_at": str(datetime.now())})
 
     generate_script(task_dir, req.distro, req.arch, req.packages)
@@ -258,11 +256,9 @@ async def create_task(req: TaskRequest, background_tasks: BackgroundTasks):
 
 @app.get("/api/check/{task_id}")
 async def check_task(task_id: str):
-    # 情况 A: 秒传缓存
     if task_id.startswith("CACHED_"):
         return {"status": "completed", "download_url": f"/api/download/{task_id}"}
 
-    # 情况 B: 查询 Redis 任务状态
     task_info = r_client.hgetall(f"task:{task_id}")
     
     if not task_info:
@@ -274,11 +270,11 @@ async def check_task(task_id: str):
         return {"status": "completed", "download_url": f"/api/download/{task_id}"}
     
     elif status == "failed":
-        return {"status": "failed", "detail": task_info.get("error")}
+        # 返回详细错误信息供前端展示
+        return {"status": "failed", "detail": task_info.get("error", "未知错误")}
     
     else:
-        # 处理中: 尝试读取物理文件夹里的文件数量作为进度
-        # 因为 Redis 里更新具体的进度(如 5/100)比较频繁，这里还是结合查物理文件比较简单
+        # 处理中：读取物理文件数
         real_task_dir = os.path.join(CONTAINER_WORK_DIR, task_id, "deb")
         count = 0
         if os.path.exists(real_task_dir):
