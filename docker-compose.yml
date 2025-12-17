@@ -7,10 +7,21 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      # 1. 核心：挂载 Docker Socket (用于调用宿主机 Docker)
       - /var/run/docker.sock:/var/run/docker.sock
+
+      # 2. 数据：挂载数据目录 (用于存放生成的离线包)
       - ./data:/app/data
-      # [新增] 日志持久化映射：宿主机 logs -> 容器 /app/logs
+
+      # 3. 日志：挂载日志目录
       - ./logs:/app/logs
+
+      # 4. [新增] 代码映射：将本地代码挂载进容器，修改即生效！
+      - ./backend:/app
+
     environment:
+      # 传入宿主机的绝对路径，用于 Dind 挂载
       - HOST_DATA_PATH=${HOST_DATA_PATH}
-    command: sh -c "mkdir -p /app/data/temp_tasks && uvicorn main:app --host 0.0.0.0 --port 8000"
+
+    # [修改] 增加了 --reload 参数，实现热更新
+    command: sh -c "mkdir -p /app/data/temp_tasks && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
