@@ -1,116 +1,107 @@
 # 📦 OPaaS - Linux 离线包工场 (Linux Offline Package Factory)
 
-**OPaaS** 是一个可视化的 Linux 离线软件及其全量依赖下载平台。
+**OPaaS** 是一个专门为**内网（Air-gapped）环境**服务器设计的可视化离线软件下载平台。它能自动解析并下载软件及其所有依赖链，并打包生成一键安装脚本，彻底解决离线环境下的“依赖地狱”问题。
 
-它专为解决**内网环境（Air-gapped）**服务器安装软件时的“依赖地狱”问题而设计。通过 Docker 容器隔离技术，它能在云端纯净环境中自动解析并下载软件及其所有依赖链，并打包生成一键安装脚本。
+---
 
-🔥 **特别优化**：本项目已适配 **Oracle Cloud ARM (Ampere)** 架构服务器，并支持**跨架构下载**（即在 ARM 服务器上为 x86_64 机器下载软件包，反之亦然）。
+## 🛠️ 核心运行机制 (How it Works)
 
-## ✨ 核心特性
+OPaaS 并不仅仅是一个简单的 `apt download` 包装器。为了保证下载的依赖是**纯净且完整**的，它采用了独特的**容器化沙箱**与**跨架构模拟**技术：
 
-* **🌐 跨架构支持 (Cross-Arch)**：支持在 ARM64 宿主机上下载 AMD64 (x86_64) 的软件包，完美适配 Oracle Cloud Free Tier。
-* **🛡️ 环境隔离**：基于 Docker 容器执行下载任务，利用 `apt` 的 `--download-only` 特性，确保依赖计算准确且不污染宿主机。
-* **🐧 多发行版支持**：目前支持 Ubuntu 24.04 LTS, Debian 11, Debian 12。
-* **⚡ 自动化脚本**：自动生成 `install.sh` 脚本，离线环境只需执行一个命令即可完成安装 + 依赖配置 + 服务启动。
-* **📊 可视化界面**：集成 Vue 3 + Tailwind CSS 的单文件前端，操作简单直观。
-* **📝 日志持久化**：完整的任务日志记录与轮转机制，方便运维排查。
+### 1. 兄弟容器架构 (Sibling Containers)
+当你在 Web 界面提交一个任务时，OPaaS 的后端（运行在 Docker 中）会调用宿主机的 Docker 守护进程，**动态启动一个新的临时容器**（Worker）。
+*   这个 Worker 容器是一个纯净的 OS 环境（如纯净的 Ubuntu 24.04）。
+*   它不依赖宿主机的任何库，确保下载的依赖包完全基于目标系统的初始状态计算，从而避免“宿主机已安装该依赖导致漏下载”的问题。
 
-## 🏗️ 系统架构
+### 2. 跨架构全量下载 (Cross-Architecture)
+本项目最核心的特性是支持**跨架构下载**。
+*   **场景**：你的办公电脑是 Windows/Mac (x86_64)，但你需要给内网的 **华为鲲鹏/树莓派 (ARM64)** 服务器下载软件。
+*   **原理**：Worker 容器在启动时，会根据你选择的目标架构（Target Arch），自动执行以下黑科技：
+    1.  `dpkg --add-architecture <target_arch>`：让 APT 包管理器“骗”过系统，认为自己支持目标架构。
+    2.  **智能换源**：自动识别架构，x86 使用 `archive.ubuntu.com`，ARM 使用 `ports.ubuntu.com`。
+    3.  `apt-get install --download-only`：只下载，不安装，确保不会因为架构不兼容而报错。
 
-```mermaid
-graph TD
-    User[用户 (Browser)] -->|HTTP POST| Web[Web 服务 (FastAPI)]
-    Web -->|挂载 Socket| DockerDaemon[宿主机 Docker 守护进程]
-    DockerDaemon -->|启动| Worker[下载器容器 (Ubuntu/Debian)]
-    
-    subgraph "下载器容器 (Ephemeral)"
-        Config[配置 APT 源 & 架构]
-        Apt[apt-get install --download-only]
-        Output[输出 .deb 文件]
-    end
-    
-    Worker -- 挂载卷 --> HostDisk[宿主机磁盘 /data]
-    Web -- 读取 --> HostDisk
-    Web -- 打包 .tar.gz --> User
-    🚀 部署指南
-环境要求
-Docker & Docker Compose
+### 3. "零依赖" 安装包
+下载完成后，系统会自动生成一个 `install.sh` 脚本，并与所有 `.deb` 文件一起打包成 `.tar.gz`。
+在离线服务器上，你**不需要安装任何额外的工具**（如 Python/Docker），只需要系统自带的 `bash` 和 `tar` 即可完成安装。
 
-Linux 宿主机 (推荐 Ubuntu/Debian，支持 ARM64 或 AMD64)
+---
 
-网络：宿主机需要能访问公网（用于拉取 Docker 镜像和软件源）
+## 🚀 快速部署
 
-1. 克隆项目
-Bash
+### 环境要求
+*   **宿主机**：Linux (Ubuntu/Debian/CentOS 均可)，需要能访问公网。
+*   **核心组件**：Docker, Docker Compose。
 
-git clone [https://github.com/your-username/opaas.git](https://github.com/your-username/opaas.git)
-cd opaas
-2. 初始化下载器镜像 (重要)
-由于项目通过 Docker 调用 Docker（Dind 模式），需要预先在宿主机构建好下载器基础镜像。
+### 部署步骤
 
-注意：脚本会自动识别宿主机架构。即使在 Oracle ARM 服务器上，也能构建出支持下载 x86 包的镜像。
+#### 第一步：构建基础镜像 (必做)
+OPaaS 需要预先构建好用于执行下载任务的“基底镜像”。
+> **注意**：即使你的宿主机是 ARM 架构（如 Oracle Cloud Ampere），此脚本也能自动构建出支持下载 x86 软件包的镜像。
 
-Bash
-
+```bash
+# 赋予脚本执行权限
 chmod +x build_images.sh builder/entrypoint.sh
+
+# 开始构建 (耗时约 1-3 分钟)
 ./build_images.sh
-3. 启动服务
-Bash
+```
 
-docker-compose up -d --build
-4. 访问服务
-打开浏览器访问：http://<服务器IP>:8000
+#### 第二步：启动服务
+```bash
+docker-compose up -d
+```
 
-📖 使用说明
-选择目标系统：例如 Ubuntu 24.04。
+#### 第三步：访问界面
+打开浏览器访问：`http://<宿主机IP>:8000`
 
-选择目标架构 (关键)：
+---
 
-如果要给普通 PC 或传统服务器用，请勾选 x86_64 (amd64)。
+## 📖 使用指南
 
-如果要给树莓派或 ARM 服务器用，请勾选 aarch64 (arm64)。
+1.  **选择系统**：选择离线服务器的操作系统版本（如 `Ubuntu 24.04`）。
+2.  **选择架构**：
+    *   **amd64 (x86_64)**：适用于 Intel/AMD 芯片的常规服务器。
+    *   **arm64 (aarch64)**：适用于 鲲鹏、飞腾、树莓派、Mac M1/M2/M3 (Linux VM)、Oracle ARM 实例。
+3.  **输入软件包**：输入你想安装的软件名，支持多个，用空格隔开。
+    *   *例如*：`vim nginx htop docker.io`
+4.  **构建 & 下载**：点击“构建”，等待任务完成，下载生成的 `.tar.gz` 文件。
 
-选择软件包：勾选预设列表（如 Docker, SSH, Vim）或手动输入包名（如 htop jq nginx）。
+### 在离线服务器上安装
 
-构建：点击开始，后台将启动隔离容器进行下载。
+将下载的压缩包上传到内网服务器，然后执行：
 
-下载 & 离线安装：
+```bash
+# 1. 解压
+tar -xzvf offline_pkg_xxxx.tar.gz
 
-点击下载生成的 .tar.gz 包。
+# 2. 进入目录
+cd offline_pkg_xxxx
 
-上传到离线服务器并解压：tar -xzvf offline_pkg_xxxx.tar.gz
+# 3. 一键安装
+# 脚本会自动配置本地 apt 源并安装所有 deb 包
+sudo bash install.sh
+```
 
-进入目录并运行安装脚本：sudo bash install.sh
+---
 
-📂 目录结构
-Plaintext
+## 📂 目录结构说明
 
+```text
 .
-├── backend/                # Web 后端 (FastAPI)
-│   ├── main.py             # 核心业务逻辑
-│   ├── Dockerfile          # Web 服务镜像构建
-│   ├── requirements.txt    # Python 依赖
-│   ├── templates/          # Jinja2 脚本模板 (生成 install.sh)
-│   └── static/             # Vue3 前端页面 (单文件)
-├── builder/                # 下载器镜像构建文件
-│   ├── Dockerfile          # 基础系统镜像
-│   └── entrypoint.sh       # 核心下载逻辑 (含跨架构处理、换源)
-├── logs/                   # 运行日志 (自动挂载)
-├── data/                   # 临时任务数据 (自动挂载)
-├── docker-compose.yml      # 服务编排
-└── build_images.sh         # 初始化构建脚本
-🛠️ 技术栈
-Backend: Python, FastAPI, Docker SDK for Python, Jinja2
+├── backend/                # Web 服务后端 (FastAPI + Vue3)
+│   ├── main.py             # 任务通过 Docker SDK 调度兄弟容器
+│   └── templates/          # install.sh 的生成模板
+├── builder/                # 下载器镜像 (Worker) 的构建文件
+│   └── entrypoint.sh       # [核心] 处理跨架构换源与下载逻辑的脚本
+├── data/                   # [自动生成] 挂载到宿主机的数据目录
+│   └── temp_tasks/         # 临时的下载任务目录
+├── build_images.sh         # 初始化脚本：构建 downloader 镜像
+└── docker-compose.yml      # 服务编排
+```
 
-Frontend: Vue.js 3, Tailwind CSS (CDN 引入)
-
-Container: Docker, Multi-stage builds
-
-System: Linux Shell (Bash), APT/DPKG, dpkg-architecture
-
-⚠️ 注意事项
-磁盘空间：下载任务会产生大量临时文件。虽然系统会自动清理成功的任务目录，但 data/temp_tasks 和 logs/ 目录建议定期检查。
-
-网络速度：下载速度取决于宿主机连接官方源（archive.ubuntu.com / deb.debian.org）的速度。
-
-安全组：Oracle Cloud 默认防火墙较严格，请确保在控制台放行 TCP 8000 端口，并在服务器内部 iptables/ufw 放行该端口。
+## ⚠️ 常见问题
+1.  **下载速度慢？**
+    下载速度取决于宿主机连接 Ubuntu/Debian 官方源的速度。建议在网速较好的机器上部署本服务。
+2.  **支持哪些系统？**
+    目前支持 Ubuntu 24.04, Debian 11, Debian 12。如需更多系统，需修改 `builder/Dockerfile` 和 `backend/main.py`。
