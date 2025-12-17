@@ -10,25 +10,53 @@
     <script src="https://cdn.tailwindcss.com"></script>
 
     <style>
-        /* 2. 解决 Vue 加载时的花括号闪烁问题 */
+        /* 防止 Vue 加载前显示花括号 */
         [v-cloak] {
             display: none !important;
         }
 
-        /* 日志框样式 */
+        /* 自定义滚动条 */
+        .custom-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-track {
+            background-color: #f1f5f9;
+        }
+
+        /* 终端日志框样式 */
         .terminal {
             background-color: #1e1e1e;
             color: #d4d4d4;
             font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
             padding: 1rem;
             border-radius: 0.5rem;
-            height: 250px;
+            height: 220px;
             overflow-y: auto;
-            font-size: 0.85rem;
-            line-height: 1.5;
             border: 1px solid #333;
+            font-size: 0.85rem;
+            line-height: 1.6;
         }
 
+        .terminal::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .terminal::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 4px;
+        }
+
+        .terminal::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+
+        /* 日志颜色 */
         .log-info {
             color: #9cdcfe;
         }
@@ -44,40 +72,27 @@
 
         .log-time {
             color: #569cd6;
-            margin-right: 8px;
-        }
-
-        /* 滚动条美化 */
-        .terminal::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        .terminal::-webkit-scrollbar-track {
-            background: #1e1e1e;
-        }
-
-        .terminal::-webkit-scrollbar-thumb {
-            background: #444;
-            border-radius: 4px;
+            margin-right: 10px;
+            opacity: 0.8;
         }
     </style>
 </head>
 
 <body class="bg-gray-100 min-h-screen flex items-center justify-center py-10">
 
-    <div id="app" v-cloak class="bg-white p-8 rounded-lg shadow-xl w-full max-w-4xl mx-4">
+    <div id="app" v-cloak class="bg-white p-8 rounded-lg shadow-xl w-full max-w-5xl mx-4">
         <div class="text-center mb-8 border-b pb-4">
             <h1 class="text-3xl font-bold text-gray-800 tracking-tight">📦 Linux 离线包工场</h1>
             <p class="text-gray-500 mt-2 text-sm">适配 Oracle Cloud ARM / 纯净环境构建 / 跨架构下载</p>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div class="space-y-5">
+            <div class="space-y-6">
                 <div>
                     <label class="block text-gray-700 font-bold mb-2 text-sm uppercase tracking-wide">1. 目标系统</label>
                     <div class="relative">
                         <select v-model="form.distro"
-                            class="block appearance-none w-full bg-gray-50 border border-gray-300 text-gray-700 py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:bg-white focus:border-blue-500">
+                            class="block appearance-none w-full bg-gray-50 border border-gray-300 text-gray-700 py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:bg-white focus:border-blue-500 transition">
                             <option value="ubuntu_24_04">Ubuntu 24.04 LTS (Noble)</option>
                             <option value="debian_12">Debian 12 (Bookworm)</option>
                             <option value="debian_11">Debian 11 (Bullseye)</option>
@@ -94,17 +109,23 @@
                 <div>
                     <label class="block text-gray-700 font-bold mb-2 text-sm uppercase tracking-wide">2. 目标架构</label>
                     <div class="flex space-x-4">
-                        <label class="flex-1 border rounded p-3 cursor-pointer hover:bg-blue-50 transition"
+                        <label
+                            class="flex-1 border rounded p-3 cursor-pointer hover:bg-blue-50 transition relative overflow-hidden"
                             :class="{'border-blue-500 bg-blue-50 ring-1 ring-blue-500': form.arch === 'amd64'}">
                             <input type="radio" value="amd64" v-model="form.arch" class="hidden">
                             <div class="font-bold text-gray-800">x86_64</div>
                             <div class="text-xs text-gray-500">Intel / AMD</div>
+                            <div v-if="form.arch === 'amd64'"
+                                class="absolute top-0 right-0 -mt-1 -mr-1 w-4 h-4 bg-blue-500 rounded-bl-lg"></div>
                         </label>
-                        <label class="flex-1 border rounded p-3 cursor-pointer hover:bg-blue-50 transition"
+                        <label
+                            class="flex-1 border rounded p-3 cursor-pointer hover:bg-blue-50 transition relative overflow-hidden"
                             :class="{'border-blue-500 bg-blue-50 ring-1 ring-blue-500': form.arch === 'arm64'}">
                             <input type="radio" value="arm64" v-model="form.arch" class="hidden">
                             <div class="font-bold text-gray-800">aarch64</div>
                             <div class="text-xs text-gray-500">ARM / Oracle Ampere</div>
+                            <div v-if="form.arch === 'arm64'"
+                                class="absolute top-0 right-0 -mt-1 -mr-1 w-4 h-4 bg-blue-500 rounded-bl-lg"></div>
                         </label>
                     </div>
                 </div>
@@ -113,12 +134,12 @@
                     <label class="block text-gray-700 font-bold mb-2 text-sm uppercase tracking-wide">3. 软件包名
                         (空格分隔)</label>
                     <input v-model="form.customPackages" type="text" placeholder="例如: nginx vim curl htop"
-                        class="appearance-none block w-full bg-gray-50 text-gray-700 border border-gray-300 rounded py-3 px-4 leading-tight focus:outline-none focus:bg-white focus:border-blue-500">
+                        class="appearance-none block w-full bg-gray-50 text-gray-700 border border-gray-300 rounded py-3 px-4 leading-tight focus:outline-none focus:bg-white focus:border-blue-500 transition">
                 </div>
 
                 <button @click="submitTask" :disabled="loading"
                     :class="loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 shadow-lg transform hover:-translate-y-0.5'"
-                    class="w-full text-white font-bold py-3 rounded transition duration-200 flex justify-center items-center mt-6">
+                    class="w-full text-white font-bold py-3 rounded transition duration-200 flex justify-center items-center mt-4">
                     <svg v-if="loading" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
                         xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
@@ -133,35 +154,41 @@
 
             <div class="flex flex-col h-full">
                 <label class="block text-gray-700 font-bold mb-2 text-sm uppercase tracking-wide">常用组件快捷选</label>
+
                 <div
-                    class="bg-white border border-gray-200 rounded-lg p-4 flex-grow overflow-y-auto max-h-64 shadow-inner custom-scroll">
+                    class="bg-white border border-gray-200 rounded-lg p-4 flex-grow overflow-y-auto max-h-64 shadow-inner custom-scroll mb-6">
                     <label v-for="pkg in commonPackages" :key="pkg.name"
-                        class="flex items-center space-x-3 mb-3 cursor-pointer hover:bg-gray-50 p-2 rounded transition group">
+                        class="flex items-center space-x-3 mb-3 cursor-pointer hover:bg-gray-50 p-2 rounded transition group select-none">
                         <input type="checkbox" :value="pkg.val" v-model="form.selectedCommon"
                             class="form-checkbox h-5 w-5 text-blue-600 rounded focus:ring-blue-500 border-gray-300">
                         <span class="text-sm text-gray-700 group-hover:text-gray-900 font-medium">{{ pkg.name }}</span>
                     </label>
                 </div>
 
-                <div v-if="taskStatus === 'completed'"
-                    class="mt-6 text-center bg-green-50 p-6 rounded-lg border border-green-200 shadow-sm animate-pulse">
-                    <div class="text-green-600 mb-2">
-                        <svg class="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
+                <div class="mt-auto">
+                    <div v-if="!taskStatus"
+                        class="w-full py-3 text-center text-gray-400 text-sm border border-dashed border-gray-300 rounded bg-gray-50 select-none">
+                        等待任务开始...
                     </div>
-                    <p class="text-green-800 font-bold text-lg mb-3">构建成功！</p>
-                    <a :href="downloadUrl"
-                        class="inline-block bg-green-600 text-white px-8 py-3 rounded-full hover:bg-green-700 font-bold shadow-md transition transform hover:scale-105">
-                        ⬇️ 点击下载 (.tar.gz)
-                    </a>
-                </div>
 
-                <div v-if="taskStatus === 'failed'"
-                    class="mt-6 text-center bg-red-50 p-4 rounded-lg border border-red-200">
-                    <p class="text-red-800 font-bold">❌ 构建失败</p>
-                    <p class="text-sm text-red-600 mt-1">请查看下方日志了解详情</p>
+                    <div v-if="taskStatus === 'processing'"
+                        class="w-full py-3 flex justify-center items-center bg-blue-50 text-blue-700 rounded border border-blue-200 animate-pulse font-medium select-none">
+                        正在云端构建...
+                    </div>
+
+                    <a v-if="taskStatus === 'completed'" :href="downloadUrl"
+                        class="block w-full bg-green-600 hover:bg-green-700 text-white text-center font-bold py-3 rounded shadow-lg transition transform hover:-translate-y-0.5 flex justify-center items-center">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                        </svg>
+                        下载离线包 (.tar.gz)
+                    </a>
+
+                    <div v-if="taskStatus === 'failed'"
+                        class="w-full py-3 text-center bg-red-100 text-red-700 font-bold rounded border border-red-200 cursor-not-allowed select-none">
+                        ❌ 构建失败 (请看日志)
+                    </div>
                 </div>
             </div>
         </div>
@@ -172,8 +199,8 @@
                 <span class="text-xs text-gray-400">实时输出</span>
             </div>
             <div class="terminal" id="logBox">
-                <div v-if="logs.length === 0" class="text-gray-500 italic text-center mt-20">等待任务开始...</div>
-                <div v-for="(log, index) in logs" :key="index">
+                <div v-if="logs.length === 0" class="text-gray-500 italic text-center mt-20 opacity-50">等待任务提交...</div>
+                <div v-for="(log, index) in logs" :key="index" class="py-0.5">
                     <span class="log-time">[{{ log.time }}]</span>
                     <span :class="log.class">{{ log.msg }}</span>
                 </div>
@@ -210,11 +237,14 @@
                     { name: 'Python3 pip', val: 'python3-pip' },
                     { name: 'Unzip / Zip', val: 'unzip zip' },
                     { name: 'MariaDB Client', val: 'mariadb-client' },
+                    { name: 'Htop 监控工具', val: 'htop' },
+                    { name: 'Jq JSON解析', val: 'jq' },
                 ];
 
                 const addLog = (msg, type = 'log-info') => {
-                    const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
+                    const time = new Date().toLocaleTimeString('en-GB'); // 24小时制
                     logs.value.push({ time, msg, class: type });
+                    // 自动滚动到底部
                     nextTick(() => {
                         const el = document.getElementById('logBox');
                         if (el) el.scrollTop = el.scrollHeight;
@@ -235,6 +265,7 @@
                     addLog('------------------------------------------------');
                     addLog(`任务初始化: ${form.distro} | 架构: ${form.arch}`);
 
+                    // 合并包列表并去重
                     let pkgList = [...form.selectedCommon];
                     if (form.customPackages) pkgList.push(...form.customPackages.split(' '));
                     pkgList = [...new Set(pkgList.join(' ').split(/\s+/).filter(p => p))];
@@ -274,23 +305,21 @@
                                 downloadUrl.value = res.data.download_url;
                                 stopPolling();
                             } else if (status === 'failed') {
-                                addLog('❌ 构建失败！请检查后端日志或包名是否存在。', 'log-warn');
+                                addLog('❌ 构建失败！请检查后端日志。', 'log-warn');
                                 taskStatus.value = 'failed';
                                 stopPolling();
                             } else {
                                 // 正在处理中
                                 const count = res.data.files_downloaded || 0;
                                 if (count > 0) {
-                                    // 避免日志刷屏
+                                    // 避免日志刷屏，仅当数量变化或长时间未更新时显示
                                     const lastLog = logs.value[logs.value.length - 1];
                                     if (!lastLog || !lastLog.msg.includes(`已下载 ${count}`)) {
                                         addLog(`📥 正在下载... 当前已缓存 ${count} 个依赖文件`);
                                     }
                                 } else {
                                     // 还没文件，可能在 apt update 或解析依赖
-                                    if (logs.value.length < 5) { // 限制一些重复日志
-                                        // 这里不做过多输出，等待即可
-                                    }
+                                    // 此时不输出，保持静默等待
                                 }
                             }
                         } catch (e) {
@@ -300,7 +329,7 @@
                                 stopPolling();
                             }
                         }
-                    }, 2000);
+                    }, 2000); // 2秒轮询一次
                 };
 
                 const stopPolling = () => {
