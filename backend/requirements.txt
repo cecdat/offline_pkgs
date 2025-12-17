@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+docker
+jinja2
+python-multipart
+redis
