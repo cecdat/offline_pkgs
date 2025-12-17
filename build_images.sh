@@ -1,22 +1,40 @@
 #!/bin/bash
 set -e
 
-echo "=== 1. 构建下载器基础镜像 (适应 Oracle Cloud) ==="
+echo "=== 1. 构建 Ubuntu 系列镜像 ==="
 
-# Ubuntu 24.04
-echo ">>> 构建 downloader:ubuntu-24.04 ..."
+# 26 Series (使用 rolling 标签代表开发版)
+echo ">>> Building: ubuntu-rolling (Future 26.xx) ..."
+docker build --build-arg BASE_IMAGE=ubuntu:rolling -t downloader:ubuntu-rolling ./builder
+
+echo ">>> Building: ubuntu-25.10 ..."
+docker build --build-arg BASE_IMAGE=ubuntu:25.10 -t downloader:ubuntu-25.10 ./builder
+
+echo ">>> Building: ubuntu-24.04 ..."
 docker build --build-arg BASE_IMAGE=ubuntu:24.04 -t downloader:ubuntu-24.04 ./builder
 
-# Debian 12
-echo ">>> 构建 downloader:debian-12 ..."
+echo ">>> Building: ubuntu-22.04 ..."
+docker build --build-arg BASE_IMAGE=ubuntu:22.04 -t downloader:ubuntu-22.04 ./builder
+
+echo ">>> Building: ubuntu-18.04 (EOL) ..."
+docker build --build-arg BASE_IMAGE=ubuntu:18.04 -t downloader:ubuntu-18.04 ./builder
+
+echo ">>> Building: ubuntu-16.04 (EOL) ..."
+docker build --build-arg BASE_IMAGE=ubuntu:16.04 -t downloader:ubuntu-16.04 ./builder
+
+echo "=== 2. 构建 Debian 系列镜像 ==="
+
+echo ">>> Building: debian-13 (Trixie) ..."
+docker build --build-arg BASE_IMAGE=debian:trixie -t downloader:debian-13 ./builder
+
+echo ">>> Building: debian-12 ..."
 docker build --build-arg BASE_IMAGE=debian:12 -t downloader:debian-12 ./builder
 
-# Debian 11
-echo ">>> 构建 downloader:debian-11 ..."
+echo ">>> Building: debian-11 ..."
 docker build --build-arg BASE_IMAGE=debian:11 -t downloader:debian-11 ./builder
 
-echo "=== 2. 创建数据目录 ==="
-mkdir -p ./data/temp_tasks
-chmod -R 777 ./data  # 确保容器内有权限写入
+echo "=== 3. 权限修正 ==="
+mkdir -p ./data/temp_tasks ./logs
+chmod -R 777 ./data ./logs
 
-echo "=== 准备就绪！请运行 docker-compose up -d ==="
+echo "=== 全部镜像构建完成 ==="

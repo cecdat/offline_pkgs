@@ -93,9 +93,21 @@
                     <div class="relative">
                         <select v-model="form.distro"
                             class="block appearance-none w-full bg-gray-50 border border-gray-300 text-gray-700 py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:bg-white focus:border-blue-500 transition">
-                            <option value="ubuntu_24_04">Ubuntu 24.04 LTS (Noble)</option>
-                            <option value="debian_12">Debian 12 (Bookworm)</option>
-                            <option value="debian_11">Debian 11 (Bullseye)</option>
+                            <optgroup label="Ubuntu (最新/开发)">
+                                <option value="ubuntu_26_series">Ubuntu 26 Series (Rolling/Dev)</option>
+                                <option value="ubuntu_25_10">Ubuntu 25.10 (Plucky)</option>
+                                <option value="ubuntu_24_04">Ubuntu 24.04 LTS (Noble)</option>
+                            </optgroup>
+                            <optgroup label="Ubuntu (稳定/旧版)">
+                                <option value="ubuntu_22_04">Ubuntu 22.04 LTS (Jammy)</option>
+                                <option value="ubuntu_18_04">Ubuntu 18.04 LTS (Bionic)</option>
+                                <option value="ubuntu_16_04">Ubuntu 16.04 LTS (Xenial)</option>
+                            </optgroup>
+                            <optgroup label="Debian">
+                                <option value="debian_13">Debian 13 (Trixie/Testing)</option>
+                                <option value="debian_12">Debian 12 (Bookworm)</option>
+                                <option value="debian_11">Debian 11 (Bullseye)</option>
+                            </optgroup>
                         </select>
                         <div
                             class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
