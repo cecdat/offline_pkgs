@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>离线包工场 (Oracle Cloud版)</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+</head>
+
+<body class="bg-gray-100 min-h-screen flex items-center justify-center py-10">
+
+    <div id="app" class="bg-white p-8 rounded-lg shadow-xl w-full max-w-2xl">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">📦 Linux 离线包工场</h1>
+            <p class="text-gray-500 mt-2">支持 AMD64 与 ARM64 跨架构下载</p>
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-gray-700 font-bold mb-2">1. 目标操作系统</label>
+            <select v-model="form.distro" class="w-full border border-gray-300 rounded-md p-2">
+                <option value="ubuntu_24_04">Ubuntu 24.04 LTS (Noble)</option>
+                <option value="debian_12">Debian 12 (Bookworm)</option>
+                <option value="debian_11">Debian 11 (Bullseye)</option>
+            </select>
+        </div>
+
+        <div class="mb-6">
+            <label class="block text-gray-700 font-bold mb-2">2. 目标硬件架构</label>
+            <div class="flex space-x-6">
+                <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="radio" value="amd64" v-model="form.arch" class="text-blue-600 focus:ring-blue-500">
+                    <span class="text-gray-700">x86_64 (Intel/AMD 通用)</span>
+                </label>
+                <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="radio" value="arm64" v-model="form.arch" class="text-blue-600 focus:ring-blue-500">
+                    <span class="text-gray-700">aarch64 (ARM 架构)</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="mb-6">
+            <label class="block text-gray-700 font-bold mb-2">3. 常用组件</label>
+            <div class="grid grid-cols-3 gap-4">
+                <label v-for="pkg in commonPackages" :key="pkg.name"
+                    class="flex items-center space-x-2 cursor-pointer bg-gray-50 p-2 rounded hover:bg-gray-100">
+                    <input type="checkbox" :value="pkg.val" v-model="form.selectedCommon"
+                        class="form-checkbox h-4 w-4 text-blue-600">
+                    <span class="text-sm text-gray-700">{{ pkg.name }}</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="mb-6">
+            <label class="block text-gray-700 font-bold mb-2">4. 其他软件包</label>
+            <input v-model="form.customPackages" type="text" placeholder="例如: htop jq nginx"
+                class="w-full border border-gray-300 rounded-md p-2">
+        </div>
+
+        <button @click="submitTask" :disabled="loading" :class="{'opacity-50': loading}"
+            class="w-full bg-blue-600 text-white font-bold py-3 rounded-md hover:bg-blue-700">
+            {{ loading ? '正在下载依赖 (需1-3分钟)...' : '开始构建' }}
+        </button>
+
+        <div v-if="taskStatus" class="mt-6 p-4 rounded-md border" :class="statusClass">
+            <h3 class="font-bold text-lg mb-2">{{ statusTitle }}</h3>
+            <div v-if="taskStatus === 'completed'" class="text-center">
+                <a :href="downloadUrl"
+                    class="inline-block bg-green-500 text-white px-6 py-2 rounded font-bold hover:bg-green-600">⬇️ 下载
+                    .tar.gz</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, reactive, computed, ref } = Vue;
+        createApp({
+            setup() {
+                const loading = ref(false);
+                const taskStatus = ref(null);
+                const downloadUrl = ref('');
+                let pollInterval = null;
+
+                const form = reactive({
+                    distro: 'ubuntu_24_04',
+                    arch: 'amd64', // 默认 x86
+                    selectedCommon: [],
+                    customPackages: ''
+                });
+
+                const commonPackages = [
+                    { name: 'Docker Engine', val: 'docker.io docker-compose-v2' },
+                    { name: 'OpenSSH Server', val: 'openssh-server' },
+                    { name: 'Vim', val: 'vim' },
+                    { name: 'Net Tools', val: 'net-tools' },
+                    { name: 'Curl/Wget', val: 'curl wget' },
+                    { name: 'Git', val: 'git' },
+                    { name: 'Python3', val: 'python3 python3-pip' },
+                ];
+
+                const submitTask = async () => {
+                    loading.value = true;
+                    taskStatus.value = 'processing';
+
+                    let pkgList = [...form.selectedCommon];
+                    if (form.customPackages) pkgList.push(...form.customPackages.split(' '));
+                    pkgList = [...new Set(pkgList.join(' ').split(/\s+/).filter(p => p))];
+
+                    try {
+                        const res = await axios.post('/api/create_task', {
+                            distro: form.distro,
+                            arch: form.arch,  // 传给后端
+                            packages: pkgList
+                        });
+                        pollStatus(res.data.task_id);
+                    } catch (e) {
+                        alert("Error: " + e.message);
+                        loading.value = false;
+                    }
+                };
+
+                const pollStatus = (taskId) => {
+                    pollInterval = setInterval(async () => {
+                        const res = await axios.get(`/api/check/${taskId}`);
+                        if (res.data.status === 'completed') {
+                            taskStatus.value = 'completed';
+                            downloadUrl.value = res.data.download_url;
+                            clearInterval(pollInterval);
+                            loading.value = false;
+                        }
+                    }, 2000);
+                };
+
+                const statusClass = computed(() => taskStatus.value === 'completed' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-blue-50 border-blue-200 text-blue-700');
+                const statusTitle = computed(() => taskStatus.value === 'completed' ? '✅ 完成' : '🚀 处理中...');
+
+                return { form, commonPackages, submitTask, loading, taskStatus, downloadUrl, statusClass, statusTitle };
+            }
+        }).mount('#app');
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,21 @@
+#!/bin/bash
+# 目标系统: {{ distro }}
+# 生成时间: {{ timestamp }}
+set -e
+BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEB_DIR="$BASE_DIR/deb"
+LOG_FILE="$BASE_DIR/install.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+echo ">>> 开始安装 {{ packages | join(' ') }}"
+if [ ! -d "$DEB_DIR" ]; then echo "未找到deb目录"; exit 1; fi
+
+echo ">>> [1/2] 解压..."
+dpkg -i "$DEB_DIR"/*.deb >/dev/null 2>&1 || true
+echo ">>> [2/2] 配置..."
+dpkg -i "$DEB_DIR"/*.deb
+
+echo ">>> 验证安装..."
+{% for pkg in packages %}
+dpkg -s {{ pkg }} >/dev/null 2>&1 && echo "[OK] {{ pkg }}" || echo "[FAIL] {{ pkg }}"
+{% endfor %}
