@@ -5,24 +5,32 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OPaaS - 离线包工场</title>
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.staticfile.net/vue/3.3.4/vue.global.prod.min.js"></script>
+    <script src="https://cdn.staticfile.net/axios/1.6.0/axios.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+
     <style>
-        /* 简单的终端风格日志框 */
+        /* 2. 解决 Vue 加载时的花括号闪烁问题 */
+        [v-cloak] {
+            display: none !important;
+        }
+
+        /* 日志框样式 */
         .terminal {
             background-color: #1e1e1e;
             color: #d4d4d4;
-            font-family: 'Courier New', Courier, monospace;
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
             padding: 1rem;
             border-radius: 0.5rem;
-            height: 200px;
+            height: 250px;
             overflow-y: auto;
-            font-size: 0.875rem;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            border: 1px solid #333;
         }
 
         .log-info {
-            color: #4ec9b0;
+            color: #9cdcfe;
         }
 
         .log-warn {
@@ -31,82 +39,143 @@
 
         .log-success {
             color: #6a9955;
+            font-weight: bold;
+        }
+
+        .log-time {
+            color: #569cd6;
+            margin-right: 8px;
+        }
+
+        /* 滚动条美化 */
+        .terminal::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .terminal::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+
+        .terminal::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 4px;
         }
     </style>
 </head>
 
 <body class="bg-gray-100 min-h-screen flex items-center justify-center py-10">
 
-    <div id="app" class="bg-white p-8 rounded-lg shadow-xl w-full max-w-3xl">
-        <div class="text-center mb-6">
-            <h1 class="text-3xl font-bold text-gray-800">📦 Linux 离线包工场</h1>
-            <p class="text-gray-500 mt-1">适配 Oracle Cloud ARM / 纯净环境构建</p>
+    <div id="app" v-cloak class="bg-white p-8 rounded-lg shadow-xl w-full max-w-4xl mx-4">
+        <div class="text-center mb-8 border-b pb-4">
+            <h1 class="text-3xl font-bold text-gray-800 tracking-tight">📦 Linux 离线包工场</h1>
+            <p class="text-gray-500 mt-2 text-sm">适配 Oracle Cloud ARM / 纯净环境构建 / 跨架构下载</p>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-                <div class="mb-4">
-                    <label class="block text-gray-700 font-bold mb-2">1. 目标系统</label>
-                    <select v-model="form.distro" class="w-full border border-gray-300 rounded p-2">
-                        <option value="ubuntu_24_04">Ubuntu 24.04 LTS</option>
-                        <option value="debian_12">Debian 12 (Bookworm)</option>
-                        <option value="debian_11">Debian 11 (Bullseye)</option>
-                    </select>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="space-y-5">
+                <div>
+                    <label class="block text-gray-700 font-bold mb-2 text-sm uppercase tracking-wide">1. 目标系统</label>
+                    <div class="relative">
+                        <select v-model="form.distro"
+                            class="block appearance-none w-full bg-gray-50 border border-gray-300 text-gray-700 py-3 px-4 pr-8 rounded leading-tight focus:outline-none focus:bg-white focus:border-blue-500">
+                            <option value="ubuntu_24_04">Ubuntu 24.04 LTS (Noble)</option>
+                            <option value="debian_12">Debian 12 (Bookworm)</option>
+                            <option value="debian_11">Debian 11 (Bullseye)</option>
+                        </select>
+                        <div
+                            class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                            <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                                <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+                            </svg>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="mb-4">
-                    <label class="block text-gray-700 font-bold mb-2">2. 目标架构</label>
+                <div>
+                    <label class="block text-gray-700 font-bold mb-2 text-sm uppercase tracking-wide">2. 目标架构</label>
                     <div class="flex space-x-4">
-                        <label class="flex items-center space-x-1 cursor-pointer">
-                            <input type="radio" value="amd64" v-model="form.arch" class="text-blue-600">
-                            <span>x86_64</span>
+                        <label class="flex-1 border rounded p-3 cursor-pointer hover:bg-blue-50 transition"
+                            :class="{'border-blue-500 bg-blue-50 ring-1 ring-blue-500': form.arch === 'amd64'}">
+                            <input type="radio" value="amd64" v-model="form.arch" class="hidden">
+                            <div class="font-bold text-gray-800">x86_64</div>
+                            <div class="text-xs text-gray-500">Intel / AMD</div>
                         </label>
-                        <label class="flex items-center space-x-1 cursor-pointer">
-                            <input type="radio" value="arm64" v-model="form.arch" class="text-blue-600">
-                            <span>arm64</span>
+                        <label class="flex-1 border rounded p-3 cursor-pointer hover:bg-blue-50 transition"
+                            :class="{'border-blue-500 bg-blue-50 ring-1 ring-blue-500': form.arch === 'arm64'}">
+                            <input type="radio" value="arm64" v-model="form.arch" class="hidden">
+                            <div class="font-bold text-gray-800">aarch64</div>
+                            <div class="text-xs text-gray-500">ARM / Oracle Ampere</div>
                         </label>
                     </div>
                 </div>
 
-                <div class="mb-4">
-                    <label class="block text-gray-700 font-bold mb-2">3. 软件包名 (空格分隔)</label>
-                    <input v-model="form.customPackages" type="text" placeholder="例如: nginx vim curl"
-                        class="w-full border border-gray-300 rounded p-2">
+                <div>
+                    <label class="block text-gray-700 font-bold mb-2 text-sm uppercase tracking-wide">3. 软件包名
+                        (空格分隔)</label>
+                    <input v-model="form.customPackages" type="text" placeholder="例如: nginx vim curl htop"
+                        class="appearance-none block w-full bg-gray-50 text-gray-700 border border-gray-300 rounded py-3 px-4 leading-tight focus:outline-none focus:bg-white focus:border-blue-500">
                 </div>
 
                 <button @click="submitTask" :disabled="loading"
-                    :class="loading ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'"
-                    class="w-full text-white font-bold py-3 rounded transition flex justify-center items-center">
-                    <span v-if="loading" class="mr-2">🔄</span>
-                    {{ loading ? '构建中...' : '开始构建' }}
+                    :class="loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 shadow-lg transform hover:-translate-y-0.5'"
+                    class="w-full text-white font-bold py-3 rounded transition duration-200 flex justify-center items-center mt-6">
+                    <svg v-if="loading" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                        </circle>
+                        <path class="opacity-75" fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                        </path>
+                    </svg>
+                    {{ loading ? '云端构建中...' : '开始构建离线包' }}
                 </button>
             </div>
 
-            <div>
-                <label class="block text-gray-700 font-bold mb-2">常用组件快捷选</label>
-                <div class="bg-gray-50 p-3 rounded h-48 overflow-y-auto mb-4 border">
+            <div class="flex flex-col h-full">
+                <label class="block text-gray-700 font-bold mb-2 text-sm uppercase tracking-wide">常用组件快捷选</label>
+                <div
+                    class="bg-white border border-gray-200 rounded-lg p-4 flex-grow overflow-y-auto max-h-64 shadow-inner custom-scroll">
                     <label v-for="pkg in commonPackages" :key="pkg.name"
-                        class="flex items-center space-x-2 mb-2 cursor-pointer hover:bg-gray-200 p-1 rounded">
-                        <input type="checkbox" :value="pkg.val" v-model="form.selectedCommon">
-                        <span class="text-sm">{{ pkg.name }}</span>
+                        class="flex items-center space-x-3 mb-3 cursor-pointer hover:bg-gray-50 p-2 rounded transition group">
+                        <input type="checkbox" :value="pkg.val" v-model="form.selectedCommon"
+                            class="form-checkbox h-5 w-5 text-blue-600 rounded focus:ring-blue-500 border-gray-300">
+                        <span class="text-sm text-gray-700 group-hover:text-gray-900 font-medium">{{ pkg.name }}</span>
                     </label>
                 </div>
 
                 <div v-if="taskStatus === 'completed'"
-                    class="text-center bg-green-50 p-4 rounded border border-green-200">
-                    <p class="text-green-800 font-bold mb-2">✅ 构建成功！</p>
+                    class="mt-6 text-center bg-green-50 p-6 rounded-lg border border-green-200 shadow-sm animate-pulse">
+                    <div class="text-green-600 mb-2">
+                        <svg class="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    <p class="text-green-800 font-bold text-lg mb-3">构建成功！</p>
                     <a :href="downloadUrl"
-                        class="inline-block bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 font-bold">⬇️
-                        下载离线包</a>
+                        class="inline-block bg-green-600 text-white px-8 py-3 rounded-full hover:bg-green-700 font-bold shadow-md transition transform hover:scale-105">
+                        ⬇️ 点击下载 (.tar.gz)
+                    </a>
+                </div>
+
+                <div v-if="taskStatus === 'failed'"
+                    class="mt-6 text-center bg-red-50 p-4 rounded-lg border border-red-200">
+                    <p class="text-red-800 font-bold">❌ 构建失败</p>
+                    <p class="text-sm text-red-600 mt-1">请查看下方日志了解详情</p>
                 </div>
             </div>
         </div>
 
-        <div class="mt-6">
-            <label class="block text-gray-700 font-bold mb-2">控制台日志</label>
+        <div class="mt-8">
+            <div class="flex justify-between items-end mb-2">
+                <label class="block text-gray-700 font-bold text-sm uppercase tracking-wide">控制台日志</label>
+                <span class="text-xs text-gray-400">实时输出</span>
+            </div>
             <div class="terminal" id="logBox">
-                <div v-for="(log, index) in logs" :key="index" :class="log.class">
-                    [{{ log.time }}] {{ log.msg }}
+                <div v-if="logs.length === 0" class="text-gray-500 italic text-center mt-20">等待任务开始...</div>
+                <div v-for="(log, index) in logs" :key="index">
+                    <span class="log-time">[{{ log.time }}]</span>
+                    <span :class="log.class">{{ log.msg }}</span>
                 </div>
             </div>
         </div>
@@ -131,20 +200,21 @@
                 });
 
                 const commonPackages = [
-                    { name: 'Docker Engine', val: 'docker.io docker-compose-v2' },
+                    { name: 'Docker Engine (含 Compose)', val: 'docker.io docker-compose-v2' },
                     { name: 'OpenSSH Server', val: 'openssh-server' },
                     { name: 'Vim 编辑器', val: 'vim' },
-                    { name: 'Net Tools', val: 'net-tools' },
-                    { name: 'Curl / Wget', val: 'curl wget' },
-                    { name: 'Git', val: 'git' },
-                    { name: 'Build Essential', val: 'build-essential' },
+                    { name: 'Net Tools (ifconfig)', val: 'net-tools' },
+                    { name: 'Curl & Wget', val: 'curl wget' },
+                    { name: 'Git 版本控制', val: 'git' },
+                    { name: 'Build Essential (GCC)', val: 'build-essential' },
                     { name: 'Python3 pip', val: 'python3-pip' },
+                    { name: 'Unzip / Zip', val: 'unzip zip' },
+                    { name: 'MariaDB Client', val: 'mariadb-client' },
                 ];
 
                 const addLog = (msg, type = 'log-info') => {
-                    const time = new Date().toLocaleTimeString();
+                    const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
                     logs.value.push({ time, msg, class: type });
-                    // 自动滚动到底部
                     nextTick(() => {
                         const el = document.getElementById('logBox');
                         if (el) el.scrollTop = el.scrollHeight;
@@ -160,14 +230,16 @@
                     loading.value = true;
                     taskStatus.value = 'processing';
                     downloadUrl.value = '';
-                    logs.value = []; // 清空日志
-                    addLog(`开始提交任务: ${form.distro} (${form.arch})`);
+                    logs.value = []; // 清空旧日志
+
+                    addLog('------------------------------------------------');
+                    addLog(`任务初始化: ${form.distro} | 架构: ${form.arch}`);
 
                     let pkgList = [...form.selectedCommon];
                     if (form.customPackages) pkgList.push(...form.customPackages.split(' '));
                     pkgList = [...new Set(pkgList.join(' ').split(/\s+/).filter(p => p))];
 
-                    addLog(`软件包列表: ${pkgList.join(', ')}`);
+                    addLog(`目标软件包: ${pkgList.join(', ')}`);
 
                     try {
                         const res = await axios.post('/api/create_task', {
@@ -177,14 +249,15 @@
                         });
 
                         const taskId = res.data.task_id;
-                        addLog(`任务ID: ${taskId}，等待 Docker 启动...`);
+                        addLog(`任务提交成功 (ID: ${taskId})`, 'log-success');
+                        addLog(`正在启动隔离容器... 请稍候`);
                         pollStatus(taskId);
 
                     } catch (e) {
                         console.error(e);
-                        addLog(`提交失败: ${e.response?.data?.detail || e.message}`, 'log-warn');
+                        addLog(`[错误] 提交失败: ${e.response?.data?.detail || e.message}`, 'log-warn');
                         loading.value = false;
-                        alert("提交失败，请查看控制台日志");
+                        taskStatus.value = 'failed';
                     }
                 };
 
@@ -196,19 +269,51 @@
                             const status = res.data.status;
 
                             if (status === 'completed') {
-                                addLog('构建完成！正在生成下载链接...', 'log-success');
+                                addLog('🎉 构建成功！打包完成。', 'log-success');
                                 taskStatus.value = 'completed';
                                 downloadUrl.value = res.data.download_url;
                                 stopPolling();
                             } else if (status === 'failed') {
-                                addLog('构建失败！后端发生错误，请检查服务器日志。', 'log-warn');
+                                addLog('❌ 构建失败！请检查后端日志或包名是否存在。', 'log-warn');
                                 taskStatus.value = 'failed';
                                 stopPolling();
                             } else {
-                                // 处理中
+                                // 正在处理中
                                 const count = res.data.files_downloaded || 0;
-                                // 只有当数量变化时才打印，避免刷屏，或者每隔几次打印
                                 if (count > 0) {
-                                    // 简单去重日志，避免刷屏
+                                    // 避免日志刷屏
                                     const lastLog = logs.value[logs.value.length - 1];
                                     if (!lastLog || !lastLog.msg.includes(`已下载 ${count}`)) {
+                                        addLog(`📥 正在下载... 当前已缓存 ${count} 个依赖文件`);
+                                    }
+                                } else {
+                                    // 还没文件，可能在 apt update 或解析依赖
+                                    if (logs.value.length < 5) { // 限制一些重复日志
+                                        // 这里不做过多输出，等待即可
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            failCount++;
+                            if (failCount > 10) {
+                                addLog('[网络错误] 无法连接服务器查询状态', 'log-warn');
+                                stopPolling();
+                            }
+                        }
+                    }, 2000);
+                };
+
+                const stopPolling = () => {
+                    clearInterval(pollInterval);
+                    loading.value = false;
+                };
+
+                return {
+                    form, commonPackages, submitTask, loading, taskStatus, downloadUrl, logs
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+
+</html>
